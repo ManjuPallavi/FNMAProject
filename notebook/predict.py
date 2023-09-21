@@ -28,6 +28,7 @@ from sklearn.feature_selection import chi2
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_curve, roc_auc_score
+from imblearn.over_sampling import SMOTE
 
 
 def make_logistic_predictions(pdata,cvalue = 1.0):
@@ -332,6 +333,75 @@ def make_random_forest_predictions (pdata,parameters,columnnames):
     for i, threshold in enumerate(thresholds):
       plt.annotate(f'Threshold {threshold:.2f}', (fpr[i], tpr[i]), textcoords="offset points", xytext=(0,10), ha='center')
 
+    
+    plt.show()
+    return
+
+
+
+
+def random_forest_ramdom_sampling (pdata,parameters,columnnames):
+    
+    filtered_data =  get_filtered_data(pdata)
+    X=  filtered_data[columnnames]
+    print("selected columns for forclosure prediction")
+    print(columnnames)
+    y = filtered_data['foreclosured'] 
+    
+    smote = SMOTE (random_state=42)
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y) 
+    
+    print(f'Training Data: foreclosured and good loans count before SMOTE :\n {y_train.value_counts()}')
+    print(f'Test Data: foreclosured and good loans count before SMOTE :\n {y_test.value_counts()}')
+    
+    X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)   
+    X_test_resampled, y_test_resampled = smote.fit_resample(X_test, y_test)   
+    
+    print(f'Training Data: foreclosured and good loans count After SMOTE :\n {y_test_resampled.value_counts()}')
+    print(f'Test Data: foreclosured and good loans count After SMOTE :\n {y_test_resampled.value_counts()}')
+    
+    classifier = RandomForestClassifier(n_estimators = parameters['n_estimators'][0], min_samples_split = parameters['min_samples_split'][0],min_samples_leaf = parameters['min_samples_leaf'][0], max_depth = parameters['max_depth'][0], criterion =parameters['criterion'][0], random_state = 1,n_jobs = -1,class_weight= 'balanced' )
+    classifier.fit(X_train_resampled,y_train_resampled)
+                                                                          
+    predictions_train = classifier.predict(X_train_resampled)      
+    print('***************************************************************************************************')
+    print('RandomForest Classifier : Confusion matrix -- training data')
+    print(confusion_matrix(y_train_resampled,predictions_train))
+    print('***RandomForest Classifer, with randomized Search Classification report training data ****')
+    print(classification_report(y_train_resampled,predictions_train))
+    print(f'RandomForest Classifier tree: Accuracy score  training data : " {accuracy_score(y_train_resampled,predictions_train)}' )
+    print('***************************************************************************************************')
+    print('\n\n')
+    print('-----------------------------------------------------------------------------------------------------')
+    
+    predictions = classifier.predict(X_test_resampled)
+    prediction_prob_test = classifier.predict_proba(X_test_resampled)
+    
+    print('************************************************************************************************')
+    print('RandomForest Classifer - Test Data: Confusion matrix')
+    print(confusion_matrix(y_test_resampled,predictions))
+    print('****** RandomForest Classifer, with randomized Search Classification report ***Test Data ****')
+    print(classification_report(y_test_resampled,predictions))    
+    print('\n')
+    print(f'RandomForest Classifer tree: Accuracy score - Test Data : {accuracy_score(y_test_resampled,predictions)}' )
+    print('***********************************************************************************************')    
+    
+        
+    fpr,tpr,thresholds = roc_curve(y_test_resampled,predictions)
+    roc_auc = roc_auc_score(y_test_resampled, predictions)
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = {:.2f})'.format(roc_auc))
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate (sensitivity)')
+    plt.title('Receiver Operating Characteristic (1- specificity)')
+    plt.legend(loc='lower right')
+    
+    for i, threshold in enumerate(thresholds):
+      plt.annotate(f'Threshold {threshold:.2f}', (fpr[i], tpr[i]), textcoords="offset points", xytext=(0,10), ha='center')
     
     plt.show()
     return
