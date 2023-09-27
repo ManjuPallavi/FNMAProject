@@ -27,11 +27,15 @@ from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import chi2  
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_curve, roc_auc_score
+from imblearn.over_sampling import SMOTE
 
 
 def make_logistic_predictions(pdata,cvalue = 1.0):
     data = get_filtered_data(pdata)
-    X=  data.drop(columns=['foreclosured'])
+    columns = ['borrower_credit_score']
+    #X=  data.drop(columns=['foreclosured'])
+    X = data[columns]
     y = data['foreclosured']
   
     Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, test_size=0.3, stratify=y)
@@ -53,7 +57,8 @@ def make_logistic_predictions(pdata,cvalue = 1.0):
     
     return
     
-    
+
+        
 def Cvalue_section(pdata):
     C_values = [0.001, 0.01, 0.1, 1, 10, 100]
 
@@ -76,11 +81,11 @@ def Cvalue_section(pdata):
     return optimal_C
 
 def make_LogicsticRegression_scaled(pdata):
-
+    print('************* LogicsticRegression Classification report for scaled data***************************')
     data = get_filtered_data(pdata)
         
-    X=  dataset.drop(columns=['foreclosured'])
-    y = dataset['foreclosured'] 
+    X=  data.drop(columns=['foreclosured'])
+    y = data['foreclosured'] 
       
     Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, test_size=0.3, stratify=y)
     scaler = preprocessing.StandardScaler().fit(Xtrain)
@@ -88,16 +93,17 @@ def make_LogicsticRegression_scaled(pdata):
     Xtests_scaled = scaler.transform(Xtest)
     model = LogisticRegression(random_state=1, class_weight="balanced",max_iter = 1000)
     predictions = cross_val_score(model,Xtrain_scaled,ytrain,cv=3)
+    
     print("LogicsticRegression: Cross-Validation Scores -- scaled data:", predictions)
     print("Mean CV Score:", predictions.mean())
     print("LogicsticRegression: Standard Deviation of CV Scores - scaled data:", predictions.std())
-    model.fit(Xtrain, ytrain)
+    model.fit(Xtrain_scaled, ytrain)
     test_accuracy = model.score(Xtests_scaled, ytest)
     print("Test Set Accuracy:", test_accuracy)
     ypred = model.predict(Xtests_scaled)
     print('Confusion matrix')
     print(confusion_matrix(ytest,ypred))
-    print('*************LogicsticRegression Classification report for scaled data***************************')
+    
     print(classification_report(ytest,ypred))
     print('*************************************************************************************************')
     print(f'LogicsticRegression Accuracy score -- scaled data " {accuracy_score(ytest,ypred)}' )
@@ -140,22 +146,27 @@ def feature_selection(pdata):
         return
         
 def get_filtered_data(data):
-        filtered_data = data[[            
+        filtered_data = data[[  
+       # "loanId",
         "originalLoanAmt",
         "interest_rate",
         "borrowers_count",
         "dti",
-       # "loan_term",
+       # "balance", zero for foreclosured loans
+        "loan_term",
         "cltv",
         "ltv",
+        "loan_age",
        # "seller",
        # "channel",
         "borrower_credit_score", 
         "high_balance_loan_ind",
         "first_time_homebuyer",
-        "property_type",
+       # "property_type",
+        "insurance_percentage",
         #"property_state",
-        "foreclosured"
+        "foreclosured",
+        "zip"
         ]]
        # filtered_data["first_time_homebuyer"]= filtered_data["first_time_homebuyer"].map({'Y':1 ,'N':0})
         
@@ -210,21 +221,23 @@ def make_decision_tree_predictions(pdata):
   
     print('Decision tree: Confusion matrix')
     print(confusion_matrix(ytest,predictions))
-    print('*************Decision tree, with randomized Search Classification report ***************************')
+    print('********Decision tree, with randomized Search Classification report ***************************')
     print(classification_report(ytest,predictions))
-    print('*************************************************************************************************************')
+    print('***************************************************************************************************')
     print(f'Decision tree Classifer tree: Accuracy score " {accuracy_score(ytest,predictions)}' )
     
     return 
 
 def best_random_forest_parameters(pdata):    
     filtered_data =    get_filtered_data(pdata)
+    
+        # filtered_data["first_time_homebuyer"]= filtered_data["first_time_homebuyer"].map({'Y':1 ,'N':0})
+   
+    filtered_data = filtered_data.dropna(axis=0, how='any')
     X=  filtered_data.drop(columns=['foreclosured'])
     y = filtered_data['foreclosured'] 
-        # filtered_data["first_time_homebuyer"]= filtered_data["first_time_homebuyer"].map({'Y':1 ,'N':0})
-    Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, test_size=0.3, stratify=y)
-    filtered_data = filtered_data.dropna(axis=0, how='any')
-        
+    
+    Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, test_size=0.3, stratify=y)  
     param_grid = {
          'n_estimators': [10, 20, 30],
          'max_depth': [None, 10, 20],
@@ -255,10 +268,13 @@ def best_random_forest_parameters(pdata):
   
     
 def make_random_forest_predictions (pdata,parameters,columnnames):
-    print("calling the function *****")
+    #print("calling the function *****")
     
     filtered_data =  get_filtered_data(pdata)
+    print(f'foreclosured loans in filtered_data : {filtered_data[filtered_data["foreclosured"] == 1]["foreclosured"].count()}')
+    print(f'Good loans in filtered_data : {filtered_data[filtered_data["foreclosured"] == 0]["foreclosured"].count()}')
     X=  filtered_data[columnnames]
+    print("selected columns for forclosure prediction")
     print(columnnames)
     y = filtered_data['foreclosured'] 
         # filtered_data["first_time_homebuyer"]= filtered_data["first_time_homebuyer"].map({'Y':1 ,'N':0})
@@ -267,15 +283,269 @@ def make_random_forest_predictions (pdata,parameters,columnnames):
     classifier = RandomForestClassifier(n_estimators = parameters['n_estimators'][0], min_samples_split = parameters['min_samples_split'][0],min_samples_leaf = parameters['min_samples_leaf'][0], max_depth = parameters['max_depth'][0], criterion =parameters['criterion'][0], random_state = 1,n_jobs = -1,class_weight= 'balanced' )
     classifier.fit(Xtrain,ytrain)
                                                                           
+    predictions_train = classifier.predict(Xtrain)      
+    print('***************************************************************************************************')
+    print('RandomForest Classifier : Confusion matrix -- training data')
+    print(confusion_matrix(ytrain,predictions_train))
+    print('***RandomForest Classifer, with randomized Search Classification report training data ****')
+    print(classification_report(ytrain,predictions_train))
+    print(f'RandomForest Classifier tree: Accuracy score  training data : " {accuracy_score(ytrain,predictions_train)}' )
+    print('***************************************************************************************************')
+    print('\n\n')
+    print('-----------------------------------------------------------------------------------------------------')
+    thresholds = [0.5,0.55,0.6,0.65,0.7,0.8]
+    acurracy_scores  = []
+    for threshold in thresholds:
+        prediction_prob_train = classifier.predict_proba(Xtrain)
+        binary_predictions_train = (prediction_prob_train[:,1] >= threshold).astype(int)
+        acurracy_scores.append(accuracy_score(ytrain,binary_predictions_train))
+            
+    optimal_threshold = thresholds[np.argmax(acurracy_scores)]
+    print(f'Optimal thresh hold value -- {optimal_threshold}')
+    print('-----------------------------------------------------------------------------------------------------')
+    print('\n\n')
     predictions = classifier.predict(Xtest)
-    prediction_prob = classifier.predict_proba(Xtest)
-    print(prediction_prob.shape)       
+    prediction_prob_test = classifier.predict_proba(Xtest)
     
-    print('Decision tree: Confusion matrix')
+    #binary_predictions_test = (prediction_prob_test[:,1] >= optimal_threshold).astype(int)
+    #print('************************************************************************************************')
+    #print('RandomForest Classifer - Test Data: Confusion matrix')
+    #print(confusion_matrix(ytest,binary_predictions_test))
+    #print('****** RandomForest Classifer, with randomized Search Classification report ***Test Data ****')
+    #print(classification_report(ytest,binary_predictions_test))    
+    #print('\n')
+    #print(f'RandomForest Classifer tree: Accuracy score - Test Data : {accuracy_score(ytest,predictions)}' )
+    #print('***********************************************************************************************')
+    
+    print('************************************************************************************************')
+    print('RandomForest Classifer - Test Data: Confusion matrix')
     print(confusion_matrix(ytest,predictions))
-    print('*************RandomForest Classifer, with randomized Search Classification report ***************************')
-    print(classification_report(ytest,predictions))
-    print('*************************************************************************************************************')
-    print(f'RandomForest Classifer tree: Accuracy score " {accuracy_score(ytest,predictions)}' )
+    print('****** RandomForest Classifer, with randomized Search Classification report ***Test Data ****')
+    print(classification_report(ytest,predictions))    
+    print('\n')
+    print(f'RandomForest Classifer tree: Accuracy score - Test Data : {accuracy_score(ytest,predictions)}' )
+    print('***********************************************************************************************')    
     
+        
+    fpr,tpr,thresholds = roc_curve(ytest,predictions)
+    roc_auc = roc_auc_score(ytest, predictions)
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = {:.2f})'.format(roc_auc))
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate (sensitivity)')
+    plt.title('Receiver Operating Characteristic (1- specificity)')
+    plt.legend(loc='lower right')
+    
+    for i, threshold in enumerate(thresholds):
+      plt.annotate(f'Threshold {threshold:.2f}', (fpr[i], tpr[i]), textcoords="offset points", xytext=(0,10), ha='center')
+
+    
+    plt.show()
+    return
+
+
+
+
+def random_forest_random_sampling (pdata,parameters,columnnames):
+    
+    filtered_data =  get_filtered_data(pdata)
+    X=  filtered_data[columnnames]
+    print("selected columns for forclosure prediction")
+    print(columnnames)
+    y = filtered_data['foreclosured'] 
+    
+    smote = SMOTE (random_state=42)
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y) 
+    
+    print(f'Training Data: foreclosured and good loans count before SMOTE :\n {y_train.value_counts()}')
+    print(f'Test Data: foreclosured and good loans count before SMOTE :\n {y_test.value_counts()}')
+    
+    X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)   
+    X_test_resampled, y_test_resampled = smote.fit_resample(X_test, y_test)   
+    
+    print(f'Training Data: foreclosured and good loans count After SMOTE :\n {y_test_resampled.value_counts()}')
+    print(f'Test Data: foreclosured and good loans count After SMOTE :\n {y_test_resampled.value_counts()}')
+    
+    classifier = RandomForestClassifier(n_estimators = parameters['n_estimators'][0], min_samples_split = parameters['min_samples_split'][0],min_samples_leaf = parameters['min_samples_leaf'][0], max_depth = parameters['max_depth'][0], criterion =parameters['criterion'][0], random_state = 1,n_jobs = -1,class_weight= 'balanced' )
+    classifier.fit(X_train_resampled,y_train_resampled)
+                                                                          
+    predictions_train = classifier.predict(X_train_resampled)      
+    print('***************************************************************************************************')
+    print('RandomForest Classifier : Confusion matrix -- training data')
+    print(confusion_matrix(y_train_resampled,predictions_train))
+    print('***RandomForest Classifer, with randomized Search Classification report training data ****')
+    print(classification_report(y_train_resampled,predictions_train))
+    print(f'RandomForest Classifier tree: Accuracy score  training data : " {accuracy_score(y_train_resampled,predictions_train)}' )
+    print('***************************************************************************************************')
+    print('\n\n')
+    print('-----------------------------------------------------------------------------------------------------')
+    
+    predictions = classifier.predict(X_test_resampled)
+    prediction_prob_test = classifier.predict_proba(X_test_resampled)[:,1]
+    
+    print('************************************************************************************************')
+    print('RandomForest Classifer - Test Data: Confusion matrix')
+    print(confusion_matrix(y_test_resampled,predictions))
+    print('****** RandomForest Classifer, with randomized Search Classification report ***Test Data ****')
+    print(classification_report(y_test_resampled,predictions))    
+    print('\n')
+    print(f'RandomForest Classifer tree: Accuracy score - Test Data : {accuracy_score(y_test_resampled,predictions)}' )
+    print('***********************************************************************************************')    
+    
+ 
+    fpr,tpr,thresholds = roc_curve(y_test_resampled,prediction_prob_test)
+    roc_auc = roc_auc_score(y_test_resampled, predictions)
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = {:.2f})'.format(roc_auc))
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate (sensitivity)')
+    plt.title('Receiver Operating Characteristic (1- specificity)')
+    plt.legend(loc='lower right')
+    
+      #for i, threshold in enumerate(thresholds):
+     # plt.annotate(f'Threshold {threshold:.2f}', (fpr[i], tpr[i]), textcoords="offset points", xytext=(0,10), ha='center')
+    
+    #plt.show()
+    return
+
+
+def make_logistic_predictions_smote(pdata,cvalue = 1.0):
+    data = get_filtered_data(pdata)
+    X=  data.drop(columns=['foreclosured'])
+    y = data['foreclosured']
+  
+    #smote = SMOTE (random_state=42)
+    
+    #X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y) 
+    
+    #print(f'Training Data: foreclosured and good loans count before SMOTE :\n {y_train.value_counts()}')
+    #print(f'Test Data: foreclosured and good loans count before SMOTE :\n {y_test.value_counts()}')
+    
+    #X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)   
+    #X_test_resampled, y_test_resampled = smote.fit_resample(X_test, y_test)   
+    
+    #print(f'Training Data: foreclosured and good loans count After SMOTE :\n {y_test_resampled.value_counts()}')
+    #print(f'Test Data: foreclosured and good loans count After SMOTE :\n {y_test_resampled.value_counts()}')
+    
+    defaults = data[data['foreclosured']==1.0]
+    good = data[data['foreclosured']==0.0]
+    frac = (1.0*defaults.shape[0])/(1.0*good.shape[0])
+    data = pd.concat([defaults, good.sample(frac=frac*2.)]).sample(frac=1.0)
+    
+    print(f'After Sampling foreclosured loans in filtered_data : {data[data["foreclosured"] == 1]["foreclosured"].count()}')
+    print(f'After Sampling  Good loans in filtered_data : {data[data["foreclosured"] == 0]["foreclosured"].count()}')
+    
+    X=  data.drop(columns=['foreclosured'])
+   
+    y = data['foreclosured']
+        # filtered_data["first_time_homebuyer"]= filtered_data["first_time_homebuyer"].map({'Y':1 ,'N':0})
+    X_train_resampled, X_test_resampled, y_train_resampled, y_test_resampled = train_test_split(X, y, test_size=0.3) 
+        
+        
+        
+    model = LogisticRegression(C= cvalue,random_state=1, class_weight="balanced",max_iter = 10000)
+    predictions = cross_val_score(model,X_train_resampled,y_train_resampled,cv=3)
+    print("LogicsticRegression: Cross-Validation Scores:", predictions)
+    print("Mean CV Score:", predictions.mean())
+    print("LogicsticRegression: Standard Deviation of CV Scores:", predictions.std())
+    
+    model.fit(X_train_resampled, y_train_resampled)
+    test_accuracy = model.score(X_train_resampled, y_train_resampled)
+    print("LogicsticRegression : Test Set Model score:", test_accuracy)
+    
+    ypred = model.predict(X_test_resampled)
+    print('Confusion matrix')
+    print(confusion_matrix(y_test_resampled,ypred))
+    print('************* LogicsticRegression Classification report ***************************')
+    print(classification_report(y_test_resampled,ypred))
+    print('***********************************************************************************')
+    print(f'LogicsticRegression Accuracy score " {accuracy_score(y_test_resampled,ypred)}' )
+    
+    fpr,tpr,thresholds = roc_curve(y_test_resampled,ypred)
+    roc_auc = roc_auc_score(y_test_resampled, ypred)
+    print(f'LogicsticRegression roc_auc " {roc_auc}' )
+    return
+
+def make_random_forest_with_balancing (pdata,parameters,columnnames):
+    #print("calling the function *****")
+    
+    filtered_data =  get_filtered_data(pdata)
+    print(f'foreclosured loans in filtered_data : {filtered_data[filtered_data["foreclosured"] == 1]["foreclosured"].count()}')
+    print(f'Good loans in filtered_data : {filtered_data[filtered_data["foreclosured"] == 0]["foreclosured"].count()}')
+    
+    defaults = filtered_data[filtered_data['foreclosured']==1.0]
+    good = filtered_data[filtered_data['foreclosured']==0.0]
+    frac = (1.0*defaults.shape[0])/(1.0*good.shape[0])
+    filtered_data = pd.concat([defaults, good.sample(frac=frac*2.)]).sample(frac=1.0)
+    
+    print(f'After Sampling foreclosured loans in filtered_data : {filtered_data[filtered_data["foreclosured"] == 1]["foreclosured"].count()}')
+    print(f'After Sampling  Good loans in filtered_data : {filtered_data[filtered_data["foreclosured"] == 0]["foreclosured"].count()}')
+    
+    
+    X=  filtered_data[columnnames]
+    print("selected columns for forclosure prediction")
+    print(columnnames)
+    y = filtered_data['foreclosured'] 
+        # filtered_data["first_time_homebuyer"]= filtered_data["first_time_homebuyer"].map({'Y':1 ,'N':0})
+    Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, test_size=0.3, stratify=y,random_state =1) 
+        
+    classifier = RandomForestClassifier(n_estimators = parameters['n_estimators'][0], min_samples_split = parameters['min_samples_split'][0],min_samples_leaf = parameters['min_samples_leaf'][0], max_depth = parameters['max_depth'][0], criterion =parameters['criterion'][0], random_state = 1,n_jobs = -1,class_weight= 'balanced' )
+    classifier.fit(Xtrain,ytrain)
+                                                                          
+    predictions_train = classifier.predict(Xtrain)      
+    print('***************************************************************************************************')
+    print('RandomForest Classifier : Confusion matrix -- training data')
+    print(confusion_matrix(ytrain,predictions_train))
+    print('***RandomForest Classifer, with randomized Search Classification report training data ****')
+    print(classification_report(ytrain,predictions_train))
+    print(f'RandomForest Classifier tree: Accuracy score  training data : " {accuracy_score(ytrain,predictions_train)}' )
+    print('***************************************************************************************************')
+    print('\n\n')
+    print('-----------------------------------------------------------------------------------------------------')
+    print('-----------------------------------------------------------------------------------------------------')
+    print('\n\n')
+    predictions = classifier.predict(Xtest)
+    prediction_prob_test = classifier.predict_proba(Xtest)[:,1]
+   
+    print('************************************************************************************************')
+    print('RandomForest Classifer - Test Data: Confusion matrix')
+    print(confusion_matrix(ytest,predictions))
+    print('****** RandomForest Classifer, with randomized Search Classification report ***Test Data ****')
+    print(classification_report(ytest,predictions))    
+    print('\n')
+    print(f'RandomForest Classifer tree: Accuracy score - Test Data : {accuracy_score(ytest,predictions)}' )
+    print('***********************************************************************************************')    
+    
+        
+    fpr,tpr,thresholds = roc_curve(ytest,prediction_prob_test)
+    roc_auc = roc_auc_score(ytest, prediction_prob_test)
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = {:.2f})'.format(roc_auc))
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate (sensitivity)')
+    plt.title('Receiver Operating Characteristic (1- specificity)')
+    plt.legend(loc='lower right')
+    
+   
+    plt.show()
+    
+    orgdate = pd.to_datetime(pdata['origination_date_year'].astype(str)+pdata['origination_date_month'].astype(str).str.zfill(2)+'01',format='%Y%m%d')
+    orgdate.name = 'origination_date'
+    output_data = Xtest.join(pdata['origination_date_year'])
+    output_data['foreclosured'] = ytest
+    output_data['prediction'] = predictions
+    output_data['probability'] = prediction_prob_test
+    
+  
+    return output_data
     return
